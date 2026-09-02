@@ -9,6 +9,7 @@
  * Usage:
  *   node zphone.mjs "<message>"            send to active task
  *   node zphone.mjs --status               connect, print hello + bootstrap
+ *   node zphone.mjs "msg" --steer            force-steer a busy session (delivery:guide)
  */
 import { readFileSync } from "node:fs";
 import { createHmac, randomUUID } from "node:crypto";
@@ -26,7 +27,7 @@ for (let i = 0; i < args.length; i++) {
   if (a.startsWith("--")) {
     const eq = a.indexOf("=");
     if (eq > 0) flags[a.slice(2, eq)] = a.slice(eq + 1);
-    else if (["status", "sessions"].includes(a.slice(2))) flags[a.slice(2)] = true;
+    else if (["status", "sessions", "steer"].includes(a.slice(2))) flags[a.slice(2)] = true;
     else { flags[a.slice(2)] = args[i + 1]; i++; }   // --flag value
   } else flags._.push(a);
 }
@@ -35,6 +36,7 @@ const LIST_SESSIONS = !!flags.sessions;
 const TARGET_SESSION = flags.session ?? null;
 const WORKSPACE = flags.workspace ?? "/home/dev/ZCodeProject";
 const MESSAGE = flags._[0] ?? null;
+const STEER = !!flags.steer;
 
 if (TARGET_SESSION && !flags.workspace) {
   console.error("[!] --session given without --workspace — refusing: a session id under the wrong workspace makes the host create a NEW session there.");
@@ -193,12 +195,36 @@ async function main() {
   }
   if (!MESSAGE) { log("no message given"); process.exit(0); }
   log(`[*] sending to ${target.slice(0, 22)}…`);
+  const commandId = randomUUID();
   const r = await rpc("zcode-agent", "sendConversationCommandV4",
     { workspacePath: WORKSPACE,
-      envelope: { commandId: randomUUID(), clientId,
+      envelope: { commandId, clientId,
                   sessionId: target, type: "sendText",
                   payload: { text: MESSAGE }, issuedAt: Date.now() } });
-  log(`[*] result: op=${r.op} ${r.json?.slice(0, 220) ?? "(empty)"}`);
+  log(`[*] send: op=${r.op} ${r.json?.slice(0, 200) ?? "(empty)"}`);
+
+  if (STEER) {
+    // two-phase steer (decoded from the web client's Steer button):
+    // promote the queued item via sendQueuedNow referencing its queueItemId
+    const admitted = JSON.parse(r.json ?? "{}");
+    let revision = admitted.revisionAtDecision;
+    let s = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      s = await rpc("zcode-agent", "sendConversationCommandV4",
+        { workspacePath: WORKSPACE,
+          envelope: { commandId: randomUUID(), clientId,
+                      sessionId: target,
+                      ...(revision != null ? { baseRevision: revision } : {}),
+                      type: "sendQueuedNow",
+                      payload: { queueItemId: `queue_${commandId}` },
+                      issuedAt: Date.now() } });
+      const res = JSON.parse(s.json ?? "{}");
+      log(`[*] steer try ${attempt}: ${res.status ?? "?"} ${res.reasonCode ?? ""} rev=${res.revisionAtDecision ?? ""}`);
+      if (res.status !== "stale") break;
+      revision = res.revisionAtDecision;   // host hands back the fresh revision — retry with it
+      await wait(150);
+    }
+  }
   await wait(2500);
   process.exit(0);
 }

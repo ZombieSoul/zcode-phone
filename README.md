@@ -26,6 +26,9 @@ node zphone.mjs "build broke — logs at /tmp/3am.log"
 
 # send to a specific session (the browser's session-picker, scripted)
 node zphone.mjs "test run failed" --session sess_xxx --workspace /path/to/proj
+
+# force-steer a BUSY session (interrupts the running turn, like the UI's Steer button)
+node zphone.mjs "STOP — new priority, drop everything" --steer
 ```
 
 The response tells you what happened:
@@ -75,9 +78,14 @@ real client to produce the frame corpus used to decode all of the above.
   `capture-*.json` (gitignored, local only) to re-derive against.
 - One remote connection at a time — while zphone is connected, the phone/browser
   page can't be.
-- `conversationRowsRangeV4` and `subscribeConversationV4` are already decoded —
-  a `--read` mode (scrape replies back into the script) is straightforward
-  future work, as is the force-steer variant for interrupting busy sessions.
+- `--read` mode (scrape replies back into the script) is straightforward future
+  work — `subscribeConversationV4` is already wired in the handshake.
+- **Steer is implemented** (v1.2): a two-phase sequence decoded from the web
+  client's Steer button — send normally (queues), then a second
+  `sendConversationCommandV4` with `type:"sendQueuedNow"` and
+  `payload:{queueItemId: "queue_<commandId>"}`, with a stale-revision retry
+  (the host uses optimistic concurrency and hands back the fresh revision on
+  `proto.staleRevision`).
 
 ## Requirements
 
