@@ -19,12 +19,32 @@ const q = Object.fromEntries(new URL(link).searchParams.entries());
 const { sid, hash, mid, app_version } = q;
 
 const args = process.argv.slice(2);
-const STATUS = args.includes("--status");
-const LIST_SESSIONS = args.includes("--sessions");
-const SESSION_FLAG = args.indexOf("--session");
-const TARGET_SESSION = SESSION_FLAG >= 0 ? args[SESSION_FLAG + 1] : null;
-const MESSAGE = args.find((a, i) => !a.startsWith("--") && i !== SESSION_FLAG + 1) ?? null;
-const WORKSPACE = args.find((a, i) => !a.startsWith("--") && i !== SESSION_FLAG + 1 && a.startsWith("/")) ?? "/home/dev/ZCodeProject";
+// explicit flag parsing: --flag value | --flag=value | boolean flags
+const flags = { _: [] };
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (a.startsWith("--")) {
+    const eq = a.indexOf("=");
+    if (eq > 0) flags[a.slice(2, eq)] = a.slice(eq + 1);
+    else if (["status", "sessions"].includes(a.slice(2))) flags[a.slice(2)] = true;
+    else { flags[a.slice(2)] = args[i + 1]; i++; }   // --flag value
+  } else flags._.push(a);
+}
+const STATUS = !!flags.status;
+const LIST_SESSIONS = !!flags.sessions;
+const TARGET_SESSION = flags.session ?? null;
+const WORKSPACE = flags.workspace ?? "/home/dev/ZCodeProject";
+const MESSAGE = flags._[0] ?? null;
+
+if (TARGET_SESSION && !flags.workspace) {
+  console.error("[!] --session given without --workspace — refusing: a session id under the wrong workspace makes the host create a NEW session there.");
+  console.error("    Usage: zphone.mjs \"msg\" --session <id> --workspace /path/to/proj");
+  process.exit(2);
+}
+if (TARGET_SESSION && !WORKSPACE.startsWith("/")) {
+  console.error(`[!] --workspace must be an absolute path (got '${WORKSPACE}')`);
+  process.exit(2);
+}
 
 const log = (s) => console.error(s);
 const varint = (n) => { const o = []; do { let b = n & 0x7f; n = Math.floor(n / 128); if (n) b |= 0x80; o.push(b); } while (n); return Buffer.from(o); };
@@ -99,10 +119,11 @@ ws.addEventListener("message", (ev) => {
       log(`[*] bootstrap: activeTask=${state.activeTaskId.slice(0, 20)}…`);
       bridge = { id: `bridge-${randomUUID()}` };
       stage = "bridging";
+      const bridgeTask = TARGET_SESSION ?? state.activeTaskId;
       send({ type: "data", payload: {
         zcode_type: "workspace-bridge-open", requestId: `wb-${randomUUID()}`,
         bridgeSessionId: bridge.id, bridgeGeneration: 1,
-        workspaceKey: WORKSPACE, taskId: state.activeTaskId,
+        workspaceKey: WORKSPACE, taskId: bridgeTask,
       }});
     } else if (pl?.zcode_type === "rpc-frame" && bridge && stage === "ready") {
       const raw = Buffer.from(pl.dataBase64, "base64");
