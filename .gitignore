@@ -1,0 +1,5 @@
+node_modules/
+link.txt
+capture-log.json
+capture-send.json
+capture-*.json
