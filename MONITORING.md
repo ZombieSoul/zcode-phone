@@ -55,3 +55,16 @@ node zphone.mjs --status && node zphone.mjs "post-update ping — disregard"
 Green → protocol unchanged. Red → `node capture-steer.mjs`, decode
 (`capture-steer.json`), diff vs README, patch constants. The captures in this
 directory are the regression corpus.
+
+## 2026-11-24: ZCode 4.0.0 broke the auth model — zphone v1 inoperative
+
+- New links carry NO `hash` param; remote control now requires **account
+  sign-in** (web client lands on a Sign In page; ws challenge key is issued
+  by the signed-in session). Proven: HMAC proofs with empty/sid/mid keys
+  all rejected; old link authenticates but routes dead (`relay error:
+  INTERNAL`) because the desktop re-paired post-3.18.
+- **Recovery path (zphone v2):** headed Playwright + persistent profile →
+  one-time z.ai sign-in → capture new handshake → re-derive proof source →
+  patch. Harness already exists (capture.mjs family).
+- **Interim:** parent-session + session_recall recovers interrupted
+  subagents without the relay.
