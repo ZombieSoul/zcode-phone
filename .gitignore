@@ -3,3 +3,5 @@ link.txt
 capture-log.json
 capture-send.json
 capture-*.json
+.profile/
+.auth/

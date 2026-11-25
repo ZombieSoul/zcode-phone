@@ -68,3 +68,25 @@ directory are the regression corpus.
   patch. Harness already exists (capture.mjs family).
 - **Interim:** parent-session + session_recall recovers interrupted
   subagents without the relay.
+
+## 2026-11-25: zphone v2 auth chain CRACKED (pure Node, no browser at runtime)
+
+1. One-time: sign in via `launch-signed.mjs` (stealth-scrubbed headed Chromium +
+   persistent `.profile/`) → `export-auth.mjs` writes the session JWT to `.auth`
+   (gitignored credential, replaces link.txt's hash).
+2. Runtime, pure Node: `POST https://zcode.z.ai/api/v1/remote/token` with
+   `Authorization: Bearer <JWT>`, body `{"role":"terminal"}`,
+   Origin/Referer `https://zcode.z.ai/remote/v4` → 22-char token, 60s expiry.
+3. Connect `wss://zcode.z.ai/api/v1/remote/ws2?token=<tok>&mid=<mid>` → send
+   `auth_init{device_sid}` → immediate `auth_ack` (NO challenge/proof — 4.0
+   moved auth entirely into the ws2 token).
+4. Then: `bootstrap-request{requestId, terminalClientSessionId}` → server
+   streams `mobile-task-view-request{epoch}` + `bridge-degraded` frames +
+   bootstrap response with view state. TLV rpc-frame layer to be verified in
+   the full port (corpus: capture-signed.json — LOCAL ONLY, contains JWT).
+
+Gotchas learned: capture-profile must goto the FULL link (sid/mid params) or
+no ws opens; POST token needs Bearer+Origin+Referer (GET 404s, bare POST 400
+code 3001); ws2test-style `process.exit()` without `ws.close()` may hold the
+single terminal slot (grace period); boot2 deadlock was missing onopen→
+auth_init (client bug, not relay).
